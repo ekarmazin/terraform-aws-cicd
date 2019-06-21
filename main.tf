@@ -1,27 +1,29 @@
-data "aws_caller_identity" "default" {}
+data "aws_caller_identity" "default" {
+}
 
-data "aws_region" "default" {}
+data "aws_region" "default" {
+}
 
 # Define composite variables for resources
 module "label" {
-  source     = "git::https://github.com/cloudposse/terraform-null-label.git?ref=tags/0.3.1"
-  namespace  = "${var.namespace}"
-  name       = "${var.name}"
-  stage      = "${var.stage}"
-  delimiter  = "${var.delimiter}"
-  attributes = "${var.attributes}"
-  tags       = "${var.tags}"
+  source     = "git::https://github.com/cloudposse/terraform-null-label.git?ref=tags/0.12.1"
+  namespace  = var.namespace
+  name       = var.name
+  stage      = var.stage
+  delimiter  = var.delimiter
+  attributes = var.attributes
+  tags       = var.tags
 }
 
 resource "aws_s3_bucket" "default" {
-  bucket = "${module.label.id}"
+  bucket = module.label.id
   acl    = "private"
-  tags   = "${module.label.tags}"
+  tags   = module.label.tags
 }
 
 resource "aws_iam_role" "default" {
-  name               = "${module.label.id}"
-  assume_role_policy = "${data.aws_iam_policy_document.assume.json}"
+  name               = module.label.id
+  assume_role_policy = data.aws_iam_policy_document.assume.json
 }
 
 data "aws_iam_policy_document" "assume" {
@@ -42,13 +44,13 @@ data "aws_iam_policy_document" "assume" {
 }
 
 resource "aws_iam_role_policy_attachment" "default" {
-  role       = "${aws_iam_role.default.id}"
-  policy_arn = "${aws_iam_policy.default.arn}"
+  role       = aws_iam_role.default.id
+  policy_arn = aws_iam_policy.default.arn
 }
 
 resource "aws_iam_policy" "default" {
-  name   = "${module.label.id}"
-  policy = "${data.aws_iam_policy_document.default.json}"
+  name   = module.label.id
+  policy = data.aws_iam_policy_document.default.json
 }
 
 data "aws_iam_policy_document" "default" {
@@ -77,13 +79,13 @@ data "aws_iam_policy_document" "default" {
 }
 
 resource "aws_iam_role_policy_attachment" "s3" {
-  role       = "${aws_iam_role.default.id}"
-  policy_arn = "${aws_iam_policy.s3.arn}"
+  role       = aws_iam_role.default.id
+  policy_arn = aws_iam_policy.s3.arn
 }
 
 resource "aws_iam_policy" "s3" {
-  name   = "${module.label.id}-s3"
-  policy = "${data.aws_iam_policy_document.s3.json}"
+  name   = join("-", [module.label.id, "s3"])
+  policy = data.aws_iam_policy_document.s3.json
 }
 
 data "aws_iam_policy_document" "s3" {
@@ -98,8 +100,8 @@ data "aws_iam_policy_document" "s3" {
     ]
 
     resources = [
-      "${aws_s3_bucket.default.arn}",
-      "${aws_s3_bucket.default.arn}/*",
+      aws_s3_bucket.default.arn,
+      join("/", [aws_s3_bucket.default.arn,"*"]),
       "arn:aws:s3:::elasticbeanstalk*",
     ]
 
@@ -108,13 +110,13 @@ data "aws_iam_policy_document" "s3" {
 }
 
 resource "aws_iam_role_policy_attachment" "codebuild" {
-  role       = "${aws_iam_role.default.id}"
-  policy_arn = "${aws_iam_policy.codebuild.arn}"
+  role       = aws_iam_role.default.id
+  policy_arn = aws_iam_policy.codebuild.arn
 }
 
 resource "aws_iam_policy" "codebuild" {
-  name   = "${module.label.id}-codebuild"
-  policy = "${data.aws_iam_policy_document.codebuild.json}"
+  name   = join("-", [module.label.id, "codebuild"])
+  policy = data.aws_iam_policy_document.codebuild.json
 }
 
 data "aws_iam_policy_document" "codebuild" {
@@ -125,34 +127,42 @@ data "aws_iam_policy_document" "codebuild" {
       "codebuild:*",
     ]
 
-    resources = ["${module.build.project_id}"]
+    # TF-UPGRADE-TODO: In Terraform v0.10 and earlier, it was sometimes necessary to
+    # force an interpolation expression to be interpreted as a list by wrapping it
+    # in an extra set of list brackets. That form was supported for compatibilty in
+    # v0.11, but is no longer supported in Terraform v0.12.
+    #
+    # If the expression in the following list itself returns a list, remove the
+    # brackets to avoid interpretation as a list of lists. If the expression
+    # returns a single list item then leave it as-is and remove this TODO comment.
+    resources = module.build.project_id
     effect    = "Allow"
   }
 }
 
 module "build" {
-  source                = "git::https://github.com/cloudposse/terraform-aws-codebuild.git?ref=tags/0.9.0"
-  namespace             = "${var.namespace}"
-  name                  = "${var.name}"
-  stage                 = "${var.stage}"
-  build_image           = "${var.build_image}"
-  build_compute_type    = "${var.build_compute_type}"
-  buildspec             = "${var.buildspec}"
-  delimiter             = "${var.delimiter}"
-  attributes            = "${concat(var.attributes, list("build"))}"
-  tags                  = "${var.tags}"
-  privileged_mode       = "${var.privileged_mode}"
-  aws_region            = "${signum(length(var.aws_region)) == 1 ? var.aws_region : data.aws_region.default.name}"
-  aws_account_id        = "${signum(length(var.aws_account_id)) == 1 ? var.aws_account_id : data.aws_caller_identity.default.account_id}"
-  image_repo_name       = "${var.image_repo_name}"
-  image_tag             = "${var.image_tag}"
-  github_token          = "${var.github_oauth_token}"
-  environment_variables = "${var.environment_variables}"
+  source                = "git::https://github.com/ekarmazin/terraform-aws-codebuild?ref=master"
+  namespace             = var.namespace
+  name                  = var.name
+  stage                 = var.stage
+  build_image           = var.build_image
+  build_compute_type    = var.build_compute_type
+  buildspec             = var.buildspec
+  delimiter             = var.delimiter
+  attributes            = concat(var.attributes, ["build"])
+  tags                  = var.tags
+  privileged_mode       = var.privileged_mode
+  aws_region            = signum(length(var.aws_region)) =="1" ? var.aws_region : data.aws_region.default.name
+  aws_account_id        = signum(length(var.aws_account_id)) == "1" ? var.aws_account_id : data.aws_caller_identity.default.account_id
+  image_repo_name       = var.image_repo_name
+  image_tag             = var.image_tag
+  github_token          = var.github_oauth_token
+  environment_variables = var.environment_variables
 }
 
 resource "aws_iam_role_policy_attachment" "codebuild_s3" {
-  role       = "${module.build.role_arn}"
-  policy_arn = "${aws_iam_policy.s3.arn}"
+  role       = module.build.role_arn
+  policy_arn = aws_iam_policy.s3.arn
 }
 
 # Only one of the `aws_codepipeline` resources below will be created:
@@ -173,12 +183,12 @@ resource "aws_iam_role_policy_attachment" "codebuild_s3" {
 
 resource "aws_codepipeline" "source_build_deploy" {
   # Elastic Beanstalk application name and environment name are specified
-  count    = "${var.enabled && signum(length(var.app)) == 1 && signum(length(var.env)) == 1 ? 1 : 0}"
-  name     = "${module.label.id}"
-  role_arn = "${aws_iam_role.default.arn}"
+  count    = var.enabled && signum(length(var.app)) == "1" && signum(length(var.env)) == "1" ? "1" : "0"
+  name     = module.label.id
+  role_arn = aws_iam_role.default.arn
 
   artifact_store {
-    location = "${aws_s3_bucket.default.bucket}"
+    location = aws_s3_bucket.default.bucket
     type     = "S3"
   }
 
@@ -193,12 +203,12 @@ resource "aws_codepipeline" "source_build_deploy" {
       version          = "1"
       output_artifacts = ["code"]
 
-      configuration {
-        OAuthToken           = "${var.github_oauth_token}"
-        Owner                = "${var.repo_owner}"
-        Repo                 = "${var.repo_name}"
-        Branch               = "${var.branch}"
-        PollForSourceChanges = "${var.poll_source_changes}"
+      configuration = {
+        OAuthToken           = var.github_oauth_token
+        Owner                = var.repo_owner
+        Repo                 = var.repo_name
+        Branch               = var.branch
+        PollForSourceChanges = var.poll_source_changes
       }
     }
   }
@@ -216,8 +226,8 @@ resource "aws_codepipeline" "source_build_deploy" {
       input_artifacts  = ["code"]
       output_artifacts = ["package"]
 
-      configuration {
-        ProjectName = "${module.build.project_name}"
+      configuration = {
+        ProjectName = module.build.project_name
       }
     }
   }
@@ -233,9 +243,9 @@ resource "aws_codepipeline" "source_build_deploy" {
       input_artifacts = ["package"]
       version         = "1"
 
-      configuration {
-        ApplicationName = "${var.app}"
-        EnvironmentName = "${var.env}"
+      configuration = {
+        ApplicationName = var.app
+        EnvironmentName = var.env
       }
     }
   }
@@ -243,12 +253,12 @@ resource "aws_codepipeline" "source_build_deploy" {
 
 resource "aws_codepipeline" "source_build" {
   # Elastic Beanstalk application name or environment name are not specified
-  count    = "${var.enabled && (signum(length(var.app)) == 0 || signum(length(var.env)) == 0) ? 1 : 0}"
-  name     = "${module.label.id}"
-  role_arn = "${aws_iam_role.default.arn}"
+  count    = var.enabled && signum(length(var.app)) == "0" || signum(length(var.env)) == "0" ? "1" : "0"
+  name     = module.label.id
+  role_arn = aws_iam_role.default.arn
 
   artifact_store {
-    location = "${aws_s3_bucket.default.bucket}"
+    location = aws_s3_bucket.default.bucket
     type     = "S3"
   }
 
@@ -263,12 +273,12 @@ resource "aws_codepipeline" "source_build" {
       version          = "1"
       output_artifacts = ["code"]
 
-      configuration {
-        OAuthToken           = "${var.github_oauth_token}"
-        Owner                = "${var.repo_owner}"
-        Repo                 = "${var.repo_name}"
-        Branch               = "${var.branch}"
-        PollForSourceChanges = "${var.poll_source_changes}"
+      configuration = {
+        OAuthToken           = var.github_oauth_token
+        Owner                = var.repo_owner
+        Repo                 = var.repo_name
+        Branch               = var.branch
+        PollForSourceChanges = var.poll_source_changes
       }
     }
   }
@@ -286,9 +296,10 @@ resource "aws_codepipeline" "source_build" {
       input_artifacts  = ["code"]
       output_artifacts = ["package"]
 
-      configuration {
-        ProjectName = "${module.build.project_name}"
+      configuration = {
+        ProjectName = module.build.project_name
       }
     }
   }
 }
+
